@@ -120,6 +120,18 @@ class EditRenovationRenderingInput(BaseModel):
 # Image Generation Tool
 # ============================================================================
 
+def _coerce_inputs(data, model_cls):
+    """Accept either a dict or an already-created Pydantic model."""
+    if isinstance(data, model_cls):
+        return data
+    if isinstance(data, dict):
+        return model_cls(**data)
+    # ADK sometimes passes a BaseModel; handle that generically
+    if hasattr(data, "model_dump"):
+        return model_cls(**data.model_dump())
+    raise TypeError(f"Expected mapping or {model_cls.__name__}, got {type(data).__name__}")
+
+
 async def generate_renovation_rendering(tool_context: ToolContext, inputs: GenerateRenovationRenderingInput) -> str:
     """
     Generates a photorealistic rendering of a renovated space based on the design plan.
@@ -134,7 +146,7 @@ async def generate_renovation_rendering(tool_context: ToolContext, inputs: Gener
     logger.info("Starting renovation rendering generation")
     try:
         client = genai.Client()
-        inputs = GenerateRenovationRenderingInput(**inputs)
+        inputs = _coerce_inputs(inputs, GenerateRenovationRenderingInput)
         
         # Handle reference images (current room photo or inspiration)
         reference_images = []
@@ -282,7 +294,7 @@ async def edit_renovation_rendering(tool_context: ToolContext, inputs: EditRenov
 
     try:
         client = genai.Client()
-        inputs = EditRenovationRenderingInput(**inputs)
+        inputs = _coerce_inputs(inputs, EditRenovationRenderingInput)
         
         # Load the existing rendering
         logger.info(f"Loading artifact: {inputs.artifact_filename}")
@@ -463,4 +475,3 @@ async def save_uploaded_image_as_artifact(
     except Exception as e:
         logger.error(f"Error saving uploaded image: {e}")
         return f"❌ Error saving uploaded image: {e}"
-
