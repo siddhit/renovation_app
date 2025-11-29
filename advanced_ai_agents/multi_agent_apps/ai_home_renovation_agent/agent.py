@@ -91,7 +91,7 @@ def calculate_timeline(
     """
     timelines = {
         "cosmetic": "1-2 weeks (quick refresh)",
-        "moderate": "3-6 weeks (includes some structural work)",
+        "moderate": "3-6 weeks (ifncludes some structural work)",
         "full": "2-4 months (complete transformation)",
         "luxury": "4-6 months (custom work, high-end finishes)"
     }
