@@ -97,6 +97,36 @@ def get_latest_reference_image_filename(tool_context: ToolContext) -> str:
     return tool_context.state.get("latest_reference_image")
 
 
+def get_latest_reference_image_by_type(tool_context: ToolContext, image_type: str) -> str:
+    """Get the most recent reference image filename of a given type."""
+    # Prefer explicitly tracked artifacts if present
+    explicit_key = f"{image_type}_artifact"
+    if explicit_key in tool_context.state:
+        return tool_context.state[explicit_key]
+    
+    # Check reference_images dictionary (tracks versioned uploads)
+    reference_images = tool_context.state.get("reference_images", {})
+    if reference_images:
+        # Preserve highest version if available; otherwise rely on insertion order
+        candidates = [
+            (filename, info.get("version", 0))
+            for filename, info in reference_images.items()
+            if info.get("type") == image_type
+        ]
+        if candidates:
+            candidates.sort(key=lambda item: item[1], reverse=True)
+            return candidates[0][0]
+    
+    # Fallback: uploaded_images collection maintained by save_uploaded_image_as_artifact
+    uploaded_images = tool_context.state.get("uploaded_images", {})
+    if uploaded_images:
+        matching = [name for name, meta in uploaded_images.items() if meta.get("type") == image_type]
+        if matching:
+            return matching[-1]
+    
+    return None
+
+
 # ============================================================================
 # Pydantic Input Models
 # ============================================================================
@@ -148,18 +178,35 @@ async def generate_renovation_rendering(tool_context: ToolContext, inputs: Gener
         client = genai.Client()
         inputs = _coerce_inputs(inputs, GenerateRenovationRenderingInput)
         
+        # Auto-attach latest reference images if caller didn't specify
+        if not inputs.current_room_photo:
+            inferred_current = get_latest_reference_image_by_type(tool_context, "current_room")
+            if inferred_current:
+                inputs.current_room_photo = inferred_current
+                logger.info(f"Auto-attaching current room photo: {inferred_current}")
+        
+        if not inputs.inspiration_image:
+            inferred_inspiration = get_latest_reference_image_by_type(tool_context, "inspiration")
+            if inferred_inspiration:
+                inputs.inspiration_image = inferred_inspiration
+                logger.info(f"Auto-attaching inspiration image: {inferred_inspiration}")
+        
         # Handle reference images (current room photo or inspiration)
         reference_images = []
         
         if inputs.current_room_photo:
-            current_photo_part = await load_reference_image(tool_context, inputs.current_room_photo)
+            current_photo_name = inputs.current_room_photo
+            if current_photo_name == "latest":
+                # Prefer current-room-specific reference; otherwise fall back to generic latest
+                current_photo_name = get_latest_reference_image_by_type(tool_context, "current_room") or get_latest_reference_image_filename(tool_context)
+            current_photo_part = await load_reference_image(tool_context, current_photo_name)
             if current_photo_part:
                 reference_images.append(current_photo_part)
-                logger.info(f"Using current room photo: {inputs.current_room_photo}")
+                logger.info(f"Using current room photo: {current_photo_name}")
         
         if inputs.inspiration_image:
             if inputs.inspiration_image == "latest":
-                insp_filename = get_latest_reference_image_filename(tool_context)
+                insp_filename = get_latest_reference_image_by_type(tool_context, "inspiration") or get_latest_reference_image_filename(tool_context)
             else:
                 insp_filename = inputs.inspiration_image
             
@@ -170,6 +217,12 @@ async def generate_renovation_rendering(tool_context: ToolContext, inputs: Gener
                     logger.info(f"Using inspiration image: {insp_filename}")
         
         # Build the enhanced prompt
+        layout_instruction = ""
+        if inputs.current_room_photo:
+            layout_instruction = (
+                "- Anchor composition to the current room photo: preserve layout, wall/window positions, and match the exact camera angle/perspective of that image. Do not invent a new floorplan.\n"
+            )
+        
         base_rewrite_prompt = f"""
         Create a highly detailed, photorealistic prompt for generating an interior design image.
         
@@ -182,12 +235,13 @@ async def generate_renovation_rendering(tool_context: ToolContext, inputs: Gener
         - Spatial layout and dimensions
         - Texture and finish details
         - Professional interior design photography quality
+        {layout_instruction}
         
         Aspect ratio: {inputs.aspect_ratio}
         """
         
         if reference_images:
-            base_rewrite_prompt += "\nUse the provided reference image(s) as inspiration for style, layout, or visual elements."
+            base_rewrite_prompt += "\nUse the provided reference image(s) as inspiration for style, layout, or visual elements. Keep the camera framing consistent with the current room reference."
         
         base_rewrite_prompt += "\n\n**Important:** Output your prompt as a single detailed paragraph optimized for photorealistic interior rendering."
         

@@ -355,13 +355,15 @@ Design Specifications:
 - Appliances: [if applicable - e.g., 'stainless steel appliances']
 - Key Features: [all important elements from design]
 
-Camera: Wide-angle interior photography, eye-level perspective
+Camera: Wide-angle interior photography, eye-level perspective and ONLY from the same exact angle as the uploaded current room photo (if available).
 Quality: Photorealistic, 8K, professional interior design magazine, natural lighting, bright and airy"
 
 Parameters:
 - prompt: [your ultra-detailed prompt above]
 - aspect_ratio: "16:9"
 - asset_name: "[room_type]_[style_keyword]_renovation" (e.g., "kitchen_modern_farmhouse_renovation")
+- current_room_photo: "latest" when a current room photo was uploaded so the renderer matches layout + camera angle
+- inspiration_image: "latest" when an inspiration image was uploaded to lock the style
 
 **After generating:**
 Briefly describe (2-3 sentences) key features visible in the rendering and how it addresses their needs.
